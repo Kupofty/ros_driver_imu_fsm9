@@ -9,7 +9,7 @@
 
 // Format 0 : NED
 // Format 1 : ENU (allow with rpy orientation)
-#define FORMAT_SELECT 0
+#define FORMAT_SELECT 1
 
 // The names corresponding to the sensor indices
 const char *const SENSOR_NAMES[] = {
@@ -93,17 +93,28 @@ int setSensorPeriod(FreespaceDeviceId device, uint32_t imu_period) {
 }
 
 int main(int argc, char **argv) {
-  ros::init(argc, argv, "driver_imu_fsm");
-  ros::NodeHandle nh;
 
+  //Initialize ROS node
+  ros::init(argc, argv, "driver_imu_fsm");
+  ros::NodeHandle nh("~");
+
+  //ROS Parameters
   int imu_period;
-  std::string imu_frame_id, topic;
+  std::string imu_frame_id, topic_data, topic_rpy, topic_accel_lin, topic_ang_vel;
   nh.param<int>("period_us", imu_period, 8000);
   nh.param<std::string>("frame_id", imu_frame_id, "/imu");
-  nh.param<std::string>("topic", topic, "imu/data");
+  nh.param<std::string>("topic_data", topic_data, "imu/data");
+  nh.param<std::string>("topic_rpy", topic_rpy, "imu/rpy");
+  nh.param<std::string>("topic_accel_lin", topic_accel_lin, "imu/accel_lin");
+  nh.param<std::string>("topic_ang_vel", topic_ang_vel, "imu/ang_vel");
 
-  ros::Publisher pubImu = nh.advertise<sensor_msgs::Imu>(topic, 100);
-  ros::Publisher pubInc = nh.advertise<geometry_msgs::Vector3>("imu/rpy", 100);
+  //Publishers
+  ros::Publisher pubImu = nh.advertise<sensor_msgs::Imu>(topic_data, 10);
+  ros::Publisher pubInc = nh.advertise<geometry_msgs::Vector3>(topic_rpy, 10);
+  ros::Publisher pubAccLin = nh.advertise<geometry_msgs::Vector3>(topic_accel_lin, 10);
+  ros::Publisher pubAngVel = nh.advertise<geometry_msgs::Vector3>(topic_ang_vel, 10);
+
+  geometry_msgs::Vector3 acc_lin, ang_vel;
 
   // Initialize the freespace library
   int rc = freespace_init();
@@ -178,7 +189,7 @@ int main(int argc, char **argv) {
   message.dataModeControlV2Request.ff7 = 1;          // ActClass/PowerMgmt
 
   rc = freespace_sendMessage(device, &message);
-  printf("reponse: %d.\n", rc);
+  //printf("reponse: %d.\n", rc);
   if (rc != FREESPACE_SUCCESS) {
     printf("Could not send message: %d.\n", rc);
   }
@@ -188,7 +199,7 @@ int main(int argc, char **argv) {
   // Loop to read messages
   while (ros::ok()) {
     rc = freespace_readMessage(device, &message, 100);
-    printf("msg: %d.\n", rc);
+    //printf("msg: %d.\n", rc);
     if (rc == FREESPACE_ERROR_TIMEOUT || rc == FREESPACE_ERROR_INTERRUPTED) {
       // Both timeout and interrupted are ok.
       // Timeout happens if there aren't any events for a second.
@@ -220,9 +231,10 @@ int main(int argc, char **argv) {
         msg.header.seq = imu_seq++;
         msg.header.stamp = ros::Time::now();
         msg.header.frame_id = imu_frame_id;
-
+        
         // Extract orientation quaternion.
         float norm = sqrt(angPos.x*angPos.x+angPos.y*angPos.y+angPos.z*angPos.z+angPos.w*angPos.w);
+
 #if FORMAT_SELECT==0
         msg.orientation.x = -angPos.x/norm;
         msg.orientation.y = -angPos.y/norm;
@@ -238,29 +250,32 @@ int main(int argc, char **argv) {
                   std::end(msg.orientation_covariance), 0.0);
 
         // Extract angular velocity.
-        msg.angular_velocity.x = angVel.x;
-        msg.angular_velocity.y = angVel.y;
-        msg.angular_velocity.z = angVel.z;
+        msg.angular_velocity.x = ang_vel.x = angVel.x;
+        msg.angular_velocity.y = ang_vel.y = angVel.y;
+        msg.angular_velocity.z = ang_vel.z = angVel.z;
         std::fill(std::begin(msg.angular_velocity_covariance),
                   std::end(msg.angular_velocity_covariance), 0.0);
 
         // Extract linear acceleration.
-        msg.linear_acceleration.x = accel.x;
-        msg.linear_acceleration.y = accel.y;
-        msg.linear_acceleration.z = accel.z;
+        msg.linear_acceleration.x = acc_lin.x = accel.x;
+        msg.linear_acceleration.y = acc_lin.y = accel.y;
+        msg.linear_acceleration.z = acc_lin.z = accel.z;
         std::fill(std::begin(msg.linear_acceleration_covariance),
                   std::end(msg.linear_acceleration_covariance), 0.0);
 
-#if FORMAT_SELECT==1
         // Extract inclination (only with format = 1)
+#if FORMAT_SELECT==1
         geometry_msgs::Vector3 rpy;
         rpy.x = inclination.y; // Roll, pitch and -yaw
         rpy.y = inclination.x;
         rpy.z = 360-inclination.z;
-
         pubInc.publish(rpy);
 #endif
+
+        //Publish topics
         pubImu.publish(msg);
+        pubAccLin.publish(acc_lin);
+        pubAngVel.publish(ang_vel);
       }
     }
   }

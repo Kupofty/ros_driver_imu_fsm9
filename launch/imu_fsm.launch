@@ -1,0 +1,17 @@
+<launch>
+<group ns="robot1">
+    <node pkg="driver_imu_fsm" type="driver_imu_fsm_node" name="imu_fsm" output="screen">
+
+        <!-- Parameters-->
+        <param name="period_us" type="int" value="8000"/>
+        <param name="frame_id" type="string" value="/imu"/>
+
+        <!-- Topics remapping -->
+        <param name="topic_data" type="string" value="all_data"/>
+        <param name="topic_rpy" type="string" value="rpy"/>
+        <param name="topic_accel_lin" type="string" value="acc_lin"/>
+        <param name="topic_ang_vel" type="string" value="ang_vel"/>
+        
+    </node>
+</group>
+</launch>
